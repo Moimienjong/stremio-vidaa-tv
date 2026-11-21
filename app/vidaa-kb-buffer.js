@@ -15,13 +15,25 @@
   ];
   var r = 0, c = 0;
 
-  function submitToStremio(input, val) {
+  function findSearchInput(el) {
+    if (!el) return null;
+    if (el.tagName === "INPUT" || el.tagName === "TEXTAREA") return el;
+    var inside = el.querySelector && el.querySelector("input, textarea");
+    if (inside) return inside;
+    var parent = el.closest && el.closest("[class*='search-input'], [class*='text-input'], [role='textbox']");
+    if (parent) return parent.querySelector("input, textarea") || parent;
+    return null;
+  }
+
+  function submitToStremio(target, val) {
+    var input = (target && target.tagName === "INPUT") ? target : document.querySelector("input[type='text'], input:not([type]), input[placeholder]");
     if (!input) return;
     input.readOnly = false;
+    input.focus();
     nativeSetter.call(input, val);
     input.dispatchEvent(new Event("input", { bubbles: true }));
     input.dispatchEvent(new Event("change", { bubbles: true }));
-    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", keyCode: 13, bubbles: true }));
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", keyCode: 13, which: 13, bubbles: true }));
   }
 
   function closeKeyboard() {
@@ -29,10 +41,10 @@
       overlay.remove();
       overlay = null;
     }
-    if (activeInput) {
+    if (activeInput && activeInput.tagName === "INPUT") {
       activeInput.readOnly = false;
-      activeInput = null;
     }
+    activeInput = null;
   }
 
   function renderKeys() {
@@ -54,12 +66,14 @@
     });
   }
 
-  function openKeyboard(input) {
-    if (overlay || !input || input.tagName !== "INPUT") return;
-    activeInput = input;
-    input.readOnly = true;
-    input.blur();
-    currentText = input.value || "";
+  function openKeyboard(target) {
+    if (overlay || !target) return;
+    activeInput = target;
+    if (target.tagName === "INPUT") {
+      target.readOnly = true;
+      target.blur();
+    }
+    currentText = target.value || "";
     r = 0; c = 0;
 
     overlay = document.createElement("div");
@@ -103,26 +117,28 @@
   }
 
   document.addEventListener("focusin", function (e) {
-    if (!overlay && e.target && e.target.tagName === "INPUT") {
-      openKeyboard(e.target);
-    }
+    if (overlay) return;
+    var target = findSearchInput(e.target);
+    if (target) openKeyboard(target);
   }, true);
 
   document.addEventListener("click", function (e) {
-    if (!overlay && e.target && e.target.tagName === "INPUT") {
+    if (overlay) return;
+    var target = findSearchInput(e.target);
+    if (target) {
       e.preventDefault();
       e.stopImmediatePropagation();
-      openKeyboard(e.target);
+      openKeyboard(target);
     }
   }, true);
 
   document.addEventListener("keydown", function (e) {
     if (!overlay) {
-      var el = document.activeElement;
-      if (el && el.tagName === "INPUT" && (e.key === "Enter" || e.keyCode === 13)) {
+      var target = findSearchInput(document.activeElement);
+      if (target && (e.key === "Enter" || e.keyCode === 13)) {
         e.preventDefault();
         e.stopImmediatePropagation();
-        openKeyboard(el);
+        openKeyboard(target);
       }
       return;
     }
@@ -141,10 +157,10 @@
       else if (key === "DEL") currentText = currentText.slice(0, -1);
       else if (key === "CLEAR") currentText = "";
       else if (key === "SEARCH") {
-        var target = activeInput;
+        var targetEl = activeInput;
         var finalQuery = currentText;
         closeKeyboard();
-        submitToStremio(target, finalQuery);
+        submitToStremio(targetEl, finalQuery);
         return;
       } else {
         currentText += key.toLowerCase();
