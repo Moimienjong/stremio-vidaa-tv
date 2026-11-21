@@ -1,10 +1,9 @@
 (function () {
   var activeEl = null;
-  var lastTypeTime = 0;
   var origSet = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
   var origBlur = HTMLInputElement.prototype.blur;
 
-  // 1. Always block Stremio from calling .blur() while activeEl is locked (keeps your keyboard open)
+  // 1. Block Stremio from calling .blur() while keyboard is open (activeEl is locked)
   HTMLInputElement.prototype.blur = function () {
     if (this === activeEl) return;
     return origBlur.apply(this, arguments);
@@ -48,7 +47,16 @@
     return false;
   }
 
-  // Nuvio's exact isBackEvent logic from js/platform/sharedKeys.js
+  function isSubScreen() {
+    var h = (window.location.hash || "").toLowerCase();
+    return (
+      h.indexOf("#/player") === 0 ||
+      h.indexOf("#/detail") === 0 ||
+      h.indexOf("#/metadetails") === 0 ||
+      h.indexOf("#/settings") === 0
+    );
+  }
+
   function isNuvioBackEvent(e) {
     var key = String((e && e.key) || "");
     var keyLower = key.toLowerCase();
@@ -57,7 +65,6 @@
     var code = String((e && e.code) || "");
     var rawCode = Number((e && (e.keyCode || e.which)) || 0);
 
-    // Ignore on-screen keyboard Backspace/Delete while typing
     if (key === "Backspace" || rawCode === 8 || key === "Delete" || rawCode === 46) {
       return false;
     }
@@ -80,7 +87,7 @@
     return keyLower.indexOf("back") !== -1;
   }
 
-  // 2. Lock onto the search input when focused AND place cursor at the very end of existing text
+  // 2. Lock onto search input when focused & place cursor at the end of existing text
   document.addEventListener("focusin", function (e) {
     var el = e.target;
     if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) {
@@ -94,7 +101,7 @@
     }
   }, true);
 
-  // 3. Always block early blur/focusout events while activeEl is locked
+  // 3. Keep keyboard open while activeEl is locked
   ["blur", "focusout"].forEach(function (evt) {
     document.addEventListener(evt, function (e) {
       if (activeEl && e.target === activeEl) {
@@ -108,56 +115,54 @@
     }, true);
   });
 
-  // 4. Catch Nuvio's exact VIDAA Back event on window (capture) while in Search
-  ["keydown", "keyup"].forEach(function (evtType) {
-    window.addEventListener(evtType, function (e) {
-      var focused = document.activeElement;
-      var isInput = focused && (focused.tagName === "INPUT" || focused.tagName === "TEXTAREA");
-      if (!isInput && !activeEl) return;
-
-      var el = activeEl || focused;
-
-      if (isNuvioBackEvent(e)) {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        activeEl = null;
-        origBlur.call(el);
-        focusLeftSidebar();
-        return;
-      }
-
-      if (evtType !== "keydown") return;
-      var k = e.keyCode || e.which;
-
-      // Letter / OK pressed on keyboard: update timestamp and flush live results
-      if (k === 13 || (k >= 48 && k <= 90) || k === 32) {
-        lastTypeTime = Date.now();
-        if (k === 13) {
-          setTimeout(function () { flushInput(el); }, 30);
-        }
-        return;
-      }
-
-      // DOWN ARROW (40): Jump to movies once you stop typing (> 350ms after last key)
-      if (k === 40 && Date.now() - lastTypeTime > 350) {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        activeEl = null;
-        origBlur.call(el);
-        focusFirstMovie();
-        return;
-      }
-    }, true);
-  });
-
-  // 5. Also catch browser history Back (popstate) if VIDAA fires popstate instead of keydown
-  window.addEventListener("popstate", function () {
+  // 4. Handle Back (1st closes keyboard; when no keyboard, jumps to left sidebar) + Single Down to movies
+  window.addEventListener("keydown", function (e) {
     var focused = document.activeElement;
     var isInput = focused && (focused.tagName === "INPUT" || focused.tagName === "TEXTAREA");
-    if (isInput || activeEl) {
-      var el = activeEl || focused;
+    var el = activeEl || (isInput ? focused : null);
+
+    if (isNuvioBackEvent(e)) {
+      if (activeEl) {
+        // Keyboard is open: unlock so TV closes the keyboard cleanly
+        activeEl = null;
+        origBlur.call(el);
+      } else if (!isSubScreen()) {
+        // No keyboard open & browsing Search / Home / Discover / Library: jump to left sidebar
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        if (el) origBlur.call(el);
+        focusLeftSidebar();
+      }
+      return;
+    }
+
+    if (!el) return;
+    var k = e.keyCode || e.which;
+
+    // OK (13) on keyboard: flush live movie results
+    if (k === 13) {
+      setTimeout(function () { flushInput(el); }, 30);
+      return;
+    }
+
+    // Single Down Arrow (40) once keyboard is closed: jump straight to the first movie poster
+    if (k === 40) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
       activeEl = null;
       origBlur.call(el);
+      focusFirstMovie();
+      return;
+    }
+  }, true);
+
+  // 5. Also catch browser history Back (popstate) when browsing Search or movie rows
+  window.addEventListener("popstate", function () {
+    if (activeEl) {
+      var el = activeEl;
+      activeEl = null;
+      origBlur.call(el);
+    } else if (!isSubScreen()) {
       focusLeftSidebar();
     }
   }, true);
