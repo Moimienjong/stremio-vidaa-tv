@@ -42,7 +42,9 @@ You don't need a PC, USB stick, or Developer Mode to start watching right now:
 ---
 
 ## 🔥 Official Store App vs. This Build
-
+this version:
+fixed keyboard disappearing after each input.
+rest the same as original:
 If you own a **Hisense Laser Projector** (`PX3-Pro`, `PX1-Pro`, `PX1HE`, `M2 Pro`, `Smart Mini C2`, `C2 Pro`, `C2 Ultra`) or **VIDAA Smart TV**, you already know the problem: the official *Stremio Lite* app in the VIDAA store is crippled, buffers after 30 seconds, and blocks community addons — while standard TV sideload guides silently fail on projector firmware.
 
 This project takes Stremio's latest **Theater `1.10.0`** TV interface and **`@stremio/stremio-core-web@0.65.1`** Rust/WASM engine, and pairs them with a purpose-built **52-module VIDAA patch layer** engineered specifically for Hisense projectors and TVs:
