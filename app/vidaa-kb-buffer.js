@@ -65,19 +65,21 @@
     }, true);
   });
 
-  // 5. Handle Enter (submit), and jump to left sidebar (or Home) when search box is empty
+  // 5. Handle Enter (submit), and jump to left sidebar anytime on Back or Left Arrow (at start of text)
   function handleExitNav(e) {
     var k = e.keyCode || e.which;
     var focused = document.activeElement;
     var isInput = focused && (focused.tagName === "INPUT" || focused.tagName === "TEXTAREA");
+    var isBackKey = (k === 27 || k === 461 || k === 10009);
+    var isLeftAtStart = (k === 37 && isInput && (!focused.value || focused.selectionStart === 0));
 
-    if (isInput && !focused.value && (k === 37 || k === 27 || k === 461 || k === 10009)) {
+    if (isInput && (isBackKey || isLeftAtStart)) {
       e.preventDefault();
       e.stopImmediatePropagation();
       var elExit = activeEl || focused;
       activeEl = null;
       origBlur.call(elExit);
-      if (!focusLeftSidebar() && (k === 27 || k === 461 || k === 10009)) {
+      if (!focusLeftSidebar() && isBackKey) {
         window.location.hash = "#/";
       }
       return true;
