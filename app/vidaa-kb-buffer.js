@@ -1,21 +1,12 @@
 (function () {
   var activeEl = null;
-  var fullHeight = window.innerHeight || 1080;
+  var lastTypeTime = 0;
   var origSet = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
   var origBlur = HTMLInputElement.prototype.blur;
 
-  window.addEventListener("resize", function () {
-    if (window.innerHeight > fullHeight) fullHeight = window.innerHeight;
-  });
-
-  function isKeyboardOpen() {
-    // VIDAA shrinks innerHeight when the on-screen keyboard is up
-    return window.innerHeight < fullHeight * 0.85;
-  }
-
-  // 1. Block Stremio from calling .blur() while typing
+  // 1. Always block Stremio from calling .blur() while activeEl is locked (keeps your keyboard open)
   HTMLInputElement.prototype.blur = function () {
-    if (this === activeEl && isKeyboardOpen()) return;
+    if (this === activeEl) return;
     return origBlur.apply(this, arguments);
   };
 
@@ -57,21 +48,27 @@
     return false;
   }
 
-  // 2. Track search input focus
+  // 2. Lock onto the search input when focused AND place cursor at the very end of existing text
   document.addEventListener("focusin", function (e) {
     var el = e.target;
     if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) {
       activeEl = el;
+      setTimeout(function () {
+        try {
+          var len = el.value.length;
+          el.setSelectionRange(len, len);
+        } catch (err) {}
+      }, 0);
     }
   }, true);
 
-  // 3. Keep focus locked only while the TV keyboard is actually open
+  // 3. Always block early blur/focusout events while activeEl is locked
   ["blur", "focusout"].forEach(function (evt) {
     document.addEventListener(evt, function (e) {
-      if (activeEl && e.target === activeEl && isKeyboardOpen()) {
+      if (activeEl && e.target === activeEl) {
         e.stopImmediatePropagation();
         setTimeout(function () {
-          if (activeEl && isKeyboardOpen() && document.activeElement !== activeEl) {
+          if (activeEl && document.activeElement !== activeEl) {
             activeEl.focus();
           }
         }, 0);
@@ -79,7 +76,7 @@
     }, true);
   });
 
-  // 4. Flush typed letters smoothly when OK (13) is pressed on the TV keyboard
+  // 4. Flush live search smoothly on OK (13) while keeping activeEl locked
   document.addEventListener("keydown", function (e) {
     var k = e.keyCode || e.which;
     var focused = document.activeElement;
@@ -88,32 +85,30 @@
 
     var el = activeEl || focused;
 
-    // If the TV keyboard is OPEN, let Down/Left/Right/OK work normally on the keyboard!
-    if (isKeyboardOpen()) {
+    // Letter / OK pressed on keyboard: update timestamp and flush live results
+    if (k === 13 || (k >= 48 && k <= 90) || k === 32 || k === 8) {
+      lastTypeTime = Date.now();
       if (k === 13) {
         setTimeout(function () { flushInput(el); }, 30);
       }
       return;
     }
 
-    // From here on, the TV keyboard is CLOSED:
-    // DOWN ARROW (40): Leave search box and focus the first movie poster directly
-    if (k === 40) {
+    // DOWN ARROW (40): Jump to movies once you stop typing (> 350ms after last key)
+    if (k === 40 && Date.now() - lastTypeTime > 350) {
       e.preventDefault();
       e.stopImmediatePropagation();
       activeEl = null;
-      try { el.setSelectionRange(0, 0); } catch (err) {}
       origBlur.call(el);
       focusFirstMovie();
       return;
     }
 
-    // BACK BUTTON (27, 461, 10009): Leave search box and focus the left sidebar directly
+    // BACK BUTTON (27, 461, 10009): Jump straight to the left menu
     if (k === 27 || k === 461 || k === 10009) {
       e.preventDefault();
       e.stopImmediatePropagation();
       activeEl = null;
-      try { el.setSelectionRange(0, 0); } catch (err) {}
       origBlur.call(el);
       focusLeftSidebar();
       return;
