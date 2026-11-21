@@ -1,173 +1,108 @@
-(function () {
-  var overlay = null;
-  var activeInput = null;
-  var currentText = "";
-  var nativeSetter = Object.getOwnPropertyDescriptor(
-    window.HTMLInputElement.prototype,
-    "value"
-  ).set;
+"""Preset catalog: apps ready to install with one click."""
+from __future__ import annotations
 
-  var ROWS = [
-    ["A","B","C","D","E","F","G","H","I","J"],
-    ["K","L","M","N","O","P","Q","R","S","T"],
-    ["U","V","W","X","Y","Z","0","1","2","3"],
-    ["4","5","6","7","8","9","SPACE","DEL","CLEAR","SEARCH"]
-  ];
-  var r = 0, c = 0;
+import re
+import ipaddress
+from urllib.parse import quote, urlsplit, urlunsplit
 
-  function findSearchInput(el) {
-    if (!el) return null;
-    if (el.tagName === "INPUT" || el.tagName === "TEXTAREA") return el;
-    var inside = el.querySelector && el.querySelector("input, textarea");
-    if (inside) return inside;
-    var parent = el.closest && el.closest("[class*='search-input'], [class*='text-input'], [role='textbox']");
-    if (parent) return parent.querySelector("input, textarea") || parent;
-    return null;
-  }
+MY_STREMIO = "https://" + "moimienjong" + ".github.io/stremio-vidaa-tv/app/?v=77"
+ORIG_ICON = "https://" + "noobygains" + ".github.io/stremio-vidaa-tv/icon.png"
 
-  function submitToStremio(target, val) {
-    var input = (target && target.tagName === "INPUT") ? target : document.querySelector("input[type='text'], input:not([type]), input[placeholder]");
-    if (!input) return;
-    input.readOnly = false;
-    input.focus();
-    nativeSetter.call(input, val);
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    input.dispatchEvent(new Event("change", { bubbles: true }));
-    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", keyCode: 13, which: 13, bubbles: true }));
-  }
+PRESETS: dict[str, dict] = {
+    "nuvio": {
+        "name": "Nuvio",
+        "app_id": "nuviodebug",
+        "url": "https://" + "nuviotvsmart" + ".vercel.app/vidaa.html",
+        "image": "https://" + "nuviotvsmart" + ".vercel.app/assets/images/tizenIcon.png",
+        "icon": "assets/nuvio-wordmark.png",
+        "description": "Browse and stream your library",
+    },
+    "stremio": {
+        "name": "Stremio",
+        "app_id": "stremiodebug",
+        "url": MY_STREMIO,
+        "server_builder": "stremio",
+        "server_optional": True,
+        "server_placeholder": "Streaming server URL (optional)",
+        "image": ORIG_ICON,
+        "description": "Full Stremio TV for VIDAA with D-pad navigation",
+    },
+    "jellyfin": {
+        "name": "Jellyfin",
+        "app_id": "jellyfin",
+        "url": "",
+        "needs_server": True,
+        "server_placeholder": "Your server's IP or URL",
+        "image": "https://" + "raw.githubusercontent" + ".com/Empi9245/Sidee/main/assets/jellyfin-tile-bold.png",
+        "icon": "assets/jellyfin.png",
+        "description": "Your media from your Jellyfin server",
+    },
+}
 
-  function closeKeyboard() {
-    if (overlay) {
-      overlay.remove();
-      overlay = null;
-    }
-    if (activeInput && activeInput.tagName === "INPUT") {
-      activeInput.readOnly = false;
-    }
-    activeInput = null;
-  }
 
-  function renderKeys() {
-    var display = document.getElementById("vkb-display");
-    if (display) display.textContent = currentText || "Type with D-pad arrows + OK...";
-    var btns = overlay.querySelectorAll(".vkb-btn");
-    btns.forEach(function (b) {
-      var br = parseInt(b.dataset.r, 10);
-      var bc = parseInt(b.dataset.c, 10);
-      if (br === r && bc === c) {
-        b.style.background = "#7b5bf5";
-        b.style.color = "#fff";
-        b.style.transform = "scale(1.08)";
-      } else {
-        b.style.background = b.dataset.key === "SEARCH" ? "#2e7d32" : "#222";
-        b.style.color = "#eee";
-        b.style.transform = "scale(1)";
-      }
-    });
-  }
+def get(key: str) -> dict | None:
+    return PRESETS.get(key.lower())
 
-  function openKeyboard(target) {
-    if (overlay || !target) return;
-    activeInput = target;
-    if (target.tagName === "INPUT") {
-      target.readOnly = true;
-      target.blur();
-    }
-    currentText = target.value || "";
-    r = 0; c = 0;
 
-    overlay = document.createElement("div");
-    overlay.style.cssText =
-      "position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:999999;" +
-      "display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:sans-serif;";
+def is_private_host(server: str) -> bool:
+    """True for local/private network (LAN) hosts: HTTP is allowed only there."""
+    host = (urlsplit(server if "://" in server else "//" + server).hostname or "").rstrip(".")
+    if host.endswith(".local"):
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return any(address in ipaddress.ip_network(network) for network in
+               ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7"))
 
-    var box = document.createElement("div");
-    box.id = "vkb-display";
-    box.style.cssText =
-      "width:72%;max-width:820px;padding:18px 24px;margin-bottom:22px;background:#141414;" +
-      "border:2px solid #7b5bf5;border-radius:12px;color:#fff;font-size:28px;min-height:38px;";
-    overlay.appendChild(box);
 
-    ROWS.forEach(function (row, ri) {
-      var rowEl = document.createElement("div");
-      rowEl.style.cssText = "display:flex;gap:10px;margin-bottom:10px;";
-      row.forEach(function (key, ci) {
-        var btn = document.createElement("div");
-        btn.className = "vkb-btn";
-        btn.dataset.r = ri;
-        btn.dataset.c = ci;
-        btn.dataset.key = key;
-        btn.textContent = key === "SPACE" ? "␣" : key === "DEL" ? "⌫" : key;
-        btn.style.cssText =
-          "min-width:" + (key.length > 1 ? "96px" : "62px") + ";height:58px;" +
-          "display:flex;align-items:center;justify-content:center;border-radius:10px;" +
-          "font-size:22px;font-weight:bold;transition:all 0.1s;";
-        rowEl.appendChild(btn);
-      });
-      overlay.appendChild(rowEl);
-    });
+def build_server_url(server: str) -> str:
+    """Server address -> web client URL, including scheme and path."""
+    server = server.strip().rstrip("/")
+    has_scheme = "://" in server
+    parsed = urlsplit(server if has_scheme else "//" + server)
+    host = (parsed.hostname or "").rstrip(".")
+    if not host:
+        raise ValueError("Enter your Jellyfin server's LAN IP or full URL.")
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        address = None
+    if (host == "localhost" or host.endswith(".localhost") or
+            (address and (address.is_loopback or address.is_unspecified))):
+        raise ValueError("Use your Jellyfin server's LAN IP or URL; localhost "
+                         "and loopback addresses refer to the TV itself.")
+    port = parsed.port
+    scheme = parsed.scheme if has_scheme else ("http" if is_private_host(server) else "https")
+    authority = parsed.netloc
+    if not has_scheme and port is None:
+        authority += ":8096"
+    path = parsed.path.rstrip("/")
+    if not re.search(r"/web(/index\.html)?$", path):
+        path += "/web/index.html"
+    return urlunsplit((scheme, authority, path, parsed.query, parsed.fragment))
 
-    var hint = document.createElement("div");
-    hint.textContent = "Arrows: Move  •  OK: Select  •  Back/Return: Close";
-    hint.style.cssText = "color:#999;font-size:18px;margin-top:14px;";
-    overlay.appendChild(hint);
 
-    document.body.appendChild(overlay);
-    renderKeys();
-  }
-
-  document.addEventListener("focusin", function (e) {
-    if (overlay) return;
-    var target = findSearchInput(e.target);
-    if (target) openKeyboard(target);
-  }, true);
-
-  document.addEventListener("click", function (e) {
-    if (overlay) return;
-    var target = findSearchInput(e.target);
-    if (target) {
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      openKeyboard(target);
-    }
-  }, true);
-
-  document.addEventListener("keydown", function (e) {
-    if (!overlay) {
-      var target = findSearchInput(document.activeElement);
-      if (target && (e.key === "Enter" || e.keyCode === 13)) {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        openKeyboard(target);
-      }
-      return;
-    }
-
-    e.preventDefault();
-    e.stopImmediatePropagation();
-    var k = e.keyCode || e.which;
-
-    if (k === 37) { c = (c - 1 + ROWS[r].length) % ROWS[r].length; renderKeys(); }
-    else if (k === 39) { c = (c + 1) % ROWS[r].length; renderKeys(); }
-    else if (k === 38) { r = (r - 1 + ROWS.length) % ROWS.length; c = Math.min(c, ROWS[r].length - 1); renderKeys(); }
-    else if (k === 40) { r = (r + 1) % ROWS.length; c = Math.min(c, ROWS[r].length - 1); renderKeys(); }
-    else if (k === 13) {
-      var key = ROWS[r][c];
-      if (key === "SPACE") currentText += " ";
-      else if (key === "DEL") currentText = currentText.slice(0, -1);
-      else if (key === "CLEAR") currentText = "";
-      else if (key === "SEARCH") {
-        var targetEl = activeInput;
-        var finalQuery = currentText;
-        closeKeyboard();
-        submitToStremio(targetEl, finalQuery);
-        return;
-      } else {
-        currentText += key.toLowerCase();
-      }
-      renderKeys();
-    } else if (k === 8 || k === 27 || k === 461 || k === 10009) {
-      closeKeyboard();
-    }
-  }, true);
-})();
+def build_stremio_url(server: str = "") -> str:
+    """Build the VIDAA-optimised full Stremio TV URL."""
+    base = MY_STREMIO
+    server = server.strip().rstrip("/")
+    if not server:
+        return base
+    parsed = urlsplit(server)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise ValueError(
+            "Paste the full Stremio streaming server URL, including http:// or https://.")
+    host = parsed.hostname.rstrip(".").lower()
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        address = None
+    if (host == "localhost" or host.endswith(".localhost") or
+            (address and (address.is_loopback or address.is_unspecified))):
+        raise ValueError(
+            "Use the Stremio server address reachable by your TV; localhost points to the TV itself.")
+    normalized = urlunsplit(
+        (parsed.scheme, parsed.netloc, parsed.path or "", parsed.query, parsed.fragment))
+    return base + "&server=" + quote(normalized, safe="")
