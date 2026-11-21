@@ -28,7 +28,7 @@
     try { el.setSelectionRange(0, 0); } catch (err) {}
   }
 
-  // 2. Lock onto the search input when focused
+  // 2. Lock onto the search input when focused (keyboard open)
   document.addEventListener("focusin", function (e) {
     var el = e.target;
     if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) {
@@ -59,7 +59,7 @@
     }, true);
   });
 
-  // 5. Handle Enter, Down Arrow (jump straight to movies), and Back (jump straight to left menu)
+  // 5. Handle Enter, Down Arrow (only when keyboard is closed!), and Back
   document.addEventListener("keydown", function (e) {
     var k = e.keyCode || e.which;
     var focused = document.activeElement;
@@ -68,13 +68,13 @@
 
     var el = activeEl || focused;
 
-    // DOWN ARROW (40): Snap cursor to front, unlock input, and let Stremio move focus straight to the movies
-    if (k === 40) {
+    // DOWN ARROW (40): Only jump to movies when keyboard is closed (activeEl is null)
+    if (k === 40 && !activeEl) {
       releaseInput(el);
-      return; // Do NOT stop propagation so Stremio's spatial nav immediately moves Down to the movie row!
+      return;
     }
 
-    // BACK BUTTON (27, 461, 10009): Snap cursor to front, unlock input, and trigger Stremio's Left nav into the sidebar
+    // BACK BUTTON (27, 461, 10009): Close/unlock input and trigger Left nav into the left menu
     if (k === 27 || k === 461 || k === 10009) {
       e.preventDefault();
       e.stopImmediatePropagation();
@@ -83,13 +83,13 @@
       return;
     }
 
-    // LEFT ARROW (37) when already at the very front: unlock input so Stremio moves into the left sidebar
-    if (k === 37 && (!el.value || el.selectionStart === 0)) {
+    // LEFT ARROW (37) when keyboard is closed and at the front: move into the left sidebar
+    if (k === 37 && !activeEl && (!el.value || el.selectionStart === 0)) {
       releaseInput(el);
       return;
     }
 
-    // DONE / ENTER (13): Flush the typed word and snap cursor to front so Down/Left work immediately
+    // DONE / ENTER (13): Flush the typed word, mark keyboard closed (activeEl = null), and snap cursor to front
     if (k === 13) {
       flushInput(el);
       return;
