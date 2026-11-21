@@ -48,6 +48,38 @@
     return false;
   }
 
+  // Nuvio's exact isBackEvent logic from js/platform/sharedKeys.js
+  function isNuvioBackEvent(e) {
+    var key = String((e && e.key) || "");
+    var keyLower = key.toLowerCase();
+    var keyName = String((e && (e.keyName || (e.detail && e.detail.keyName))) || "");
+    var keyNameLower = keyName.toLowerCase();
+    var code = String((e && e.code) || "");
+    var rawCode = Number((e && (e.keyCode || e.which)) || 0);
+
+    // Ignore on-screen keyboard Backspace/Delete while typing
+    if (key === "Backspace" || rawCode === 8 || key === "Delete" || rawCode === 46) {
+      return false;
+    }
+    if (["back", "goback", "browserback", "xf86back"].indexOf(keyNameLower) !== -1) {
+      return true;
+    }
+    if ([461, 10009, 27].indexOf(rawCode) !== -1) {
+      return true;
+    }
+    if (
+      key === "Escape" ||
+      key === "Esc" ||
+      key === "GoBack" ||
+      key === "XF86Back" ||
+      code === "BrowserBack" ||
+      code === "GoBack"
+    ) {
+      return true;
+    }
+    return keyLower.indexOf("back") !== -1;
+  }
+
   // 2. Lock onto the search input when focused AND place cursor at the very end of existing text
   document.addEventListener("focusin", function (e) {
     var el = e.target;
@@ -76,42 +108,57 @@
     }, true);
   });
 
-  // 4. Flush live search smoothly on OK (13) while keeping activeEl locked
-  document.addEventListener("keydown", function (e) {
-    var k = e.keyCode || e.which;
+  // 4. Catch Nuvio's exact VIDAA Back event on window (capture) while in Search
+  ["keydown", "keyup"].forEach(function (evtType) {
+    window.addEventListener(evtType, function (e) {
+      var focused = document.activeElement;
+      var isInput = focused && (focused.tagName === "INPUT" || focused.tagName === "TEXTAREA");
+      if (!isInput && !activeEl) return;
+
+      var el = activeEl || focused;
+
+      if (isNuvioBackEvent(e)) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        activeEl = null;
+        origBlur.call(el);
+        focusLeftSidebar();
+        return;
+      }
+
+      if (evtType !== "keydown") return;
+      var k = e.keyCode || e.which;
+
+      // Letter / OK pressed on keyboard: update timestamp and flush live results
+      if (k === 13 || (k >= 48 && k <= 90) || k === 32) {
+        lastTypeTime = Date.now();
+        if (k === 13) {
+          setTimeout(function () { flushInput(el); }, 30);
+        }
+        return;
+      }
+
+      // DOWN ARROW (40): Jump to movies once you stop typing (> 350ms after last key)
+      if (k === 40 && Date.now() - lastTypeTime > 350) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        activeEl = null;
+        origBlur.call(el);
+        focusFirstMovie();
+        return;
+      }
+    }, true);
+  });
+
+  // 5. Also catch browser history Back (popstate) if VIDAA fires popstate instead of keydown
+  window.addEventListener("popstate", function () {
     var focused = document.activeElement;
     var isInput = focused && (focused.tagName === "INPUT" || focused.tagName === "TEXTAREA");
-    if (!isInput && !activeEl) return;
-
-    var el = activeEl || focused;
-
-    // Letter / OK pressed on keyboard: update timestamp and flush live results
-    if (k === 13 || (k >= 48 && k <= 90) || k === 32 || k === 8) {
-      lastTypeTime = Date.now();
-      if (k === 13) {
-        setTimeout(function () { flushInput(el); }, 30);
-      }
-      return;
-    }
-
-    // DOWN ARROW (40): Jump to movies once you stop typing (> 350ms after last key)
-    if (k === 40 && Date.now() - lastTypeTime > 350) {
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      activeEl = null;
-      origBlur.call(el);
-      focusFirstMovie();
-      return;
-    }
-
-    // BACK BUTTON (27, 461, 10009): Jump straight to the left menu
-    if (k === 27 || k === 461 || k === 10009) {
-      e.preventDefault();
-      e.stopImmediatePropagation();
+    if (isInput || activeEl) {
+      var el = activeEl || focused;
       activeEl = null;
       origBlur.call(el);
       focusLeftSidebar();
-      return;
     }
   }, true);
 })();
