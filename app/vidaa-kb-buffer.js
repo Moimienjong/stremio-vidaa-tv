@@ -17,6 +17,7 @@
 
   function submitToStremio(input, val) {
     if (!input) return;
+    input.readOnly = false;
     nativeSetter.call(input, val);
     input.dispatchEvent(new Event("input", { bubbles: true }));
     input.dispatchEvent(new Event("change", { bubbles: true }));
@@ -29,7 +30,7 @@
       overlay = null;
     }
     if (activeInput) {
-      activeInput.focus();
+      activeInput.readOnly = false;
       activeInput = null;
     }
   }
@@ -54,8 +55,10 @@
   }
 
   function openKeyboard(input) {
-    if (overlay) return;
+    if (overlay || !input || input.tagName !== "INPUT") return;
     activeInput = input;
+    input.readOnly = true;
+    input.blur();
     currentText = input.value || "";
     r = 0; c = 0;
 
@@ -99,13 +102,26 @@
     renderKeys();
   }
 
+  document.addEventListener("focusin", function (e) {
+    if (!overlay && e.target && e.target.tagName === "INPUT") {
+      openKeyboard(e.target);
+    }
+  }, true);
+
+  document.addEventListener("click", function (e) {
+    if (!overlay && e.target && e.target.tagName === "INPUT") {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      openKeyboard(e.target);
+    }
+  }, true);
+
   document.addEventListener("keydown", function (e) {
     if (!overlay) {
       var el = document.activeElement;
       if (el && el.tagName === "INPUT" && (e.key === "Enter" || e.keyCode === 13)) {
         e.preventDefault();
         e.stopImmediatePropagation();
-        el.blur();
         openKeyboard(el);
       }
       return;
@@ -115,11 +131,11 @@
     e.stopImmediatePropagation();
     var k = e.keyCode || e.which;
 
-    if (k === 37) { c = (c - 1 + ROWS[r].length) % ROWS[r].length; renderKeys(); } // Left
-    else if (k === 39) { c = (c + 1) % ROWS[r].length; renderKeys(); } // Right
-    else if (k === 38) { r = (r - 1 + ROWS.length) % ROWS.length; c = Math.min(c, ROWS[r].length - 1); renderKeys(); } // Up
-    else if (k === 40) { r = (r + 1) % ROWS.length; c = Math.min(c, ROWS[r].length - 1); renderKeys(); } // Down
-    else if (k === 13) { // OK / Enter
+    if (k === 37) { c = (c - 1 + ROWS[r].length) % ROWS[r].length; renderKeys(); }
+    else if (k === 39) { c = (c + 1) % ROWS[r].length; renderKeys(); }
+    else if (k === 38) { r = (r - 1 + ROWS.length) % ROWS.length; c = Math.min(c, ROWS[r].length - 1); renderKeys(); }
+    else if (k === 40) { r = (r + 1) % ROWS.length; c = Math.min(c, ROWS[r].length - 1); renderKeys(); }
+    else if (k === 13) {
       var key = ROWS[r][c];
       if (key === "SPACE") currentText += " ";
       else if (key === "DEL") currentText = currentText.slice(0, -1);
@@ -134,7 +150,7 @@
         currentText += key.toLowerCase();
       }
       renderKeys();
-    } else if (k === 8 || k === 27 || k === 461 || k === 10009) { // Back / Return
+    } else if (k === 8 || k === 27 || k === 461 || k === 10009) {
       closeKeyboard();
     }
   }, true);
