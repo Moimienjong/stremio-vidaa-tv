@@ -33,13 +33,32 @@
   }
 
   function focusLeftSidebar() {
-    var navs = document.querySelectorAll("a[href='#/'], a[href='#/search'], a[href='#/board'], nav a, nav div, [class*='nav-bar'] a, [class*='nav-bar'] div");
-    for (var i = 0; i < navs.length; i++) {
-      var n = navs[i];
+    // 1st priority: match Stremio's exact sidebar route links (Home, Board, Discover, Library, Search)
+    var routeLinks = document.querySelectorAll(
+      "a[href='#/'], a[href='#/board'], a[href='#/discover'], a[href='#/library'], a[href='#/search']"
+    );
+    for (var i = 0; i < routeLinks.length; i++) {
+      var link = routeLinks[i];
+      var lr = link.getBoundingClientRect();
+      if (lr.width > 0 && lr.height > 0 && lr.left >= 0 && lr.left < 260) {
+        if (link.tabIndex < 0) link.tabIndex = 0;
+        link.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+        link.focus();
+        if (document.activeElement === link) return true;
+      }
+    }
+
+    // 2nd priority: any visible nav/sidebar container item on the far left
+    var navs = document.querySelectorAll(
+      "nav a, nav div, nav button, [class*='nav-bar'] a, [class*='nav-bar'] div, [class*='side-nav'] a, [class*='side-nav'] div, [class*='vertical-nav'] a, [class*='vertical-nav'] div"
+    );
+    for (var j = 0; j < navs.length; j++) {
+      var n = navs[j];
       if (n.tagName === "INPUT" || n.tagName === "TEXTAREA") continue;
       var r = n.getBoundingClientRect();
-      if (r.width >= 24 && r.width <= 260 && r.height >= 24 && r.height <= 120 && r.left >= 0 && r.left < 150 && r.top >= 40) {
+      if (r.width >= 20 && r.width <= 260 && r.height >= 20 && r.height <= 140 && r.left >= 0 && r.left < 220) {
         if (n.tabIndex < 0) n.tabIndex = 0;
+        n.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
         n.focus();
         if (document.activeElement === n) return true;
       }
@@ -115,46 +134,48 @@
     }, true);
   });
 
-  // 4. Handle Back (1st closes keyboard; when no keyboard, jumps to left sidebar) + Single Down to movies
-  window.addEventListener("keydown", function (e) {
-    var focused = document.activeElement;
-    var isInput = focused && (focused.tagName === "INPUT" || focused.tagName === "TEXTAREA");
-    var el = activeEl || (isInput ? focused : null);
+  // 4. Handle Back (1st closes keyboard; when no keyboard, jumps to left sidebar from anywhere) + Single Down to movies
+  ["keydown", "keyup"].forEach(function (evtType) {
+    window.addEventListener(evtType, function (e) {
+      var focused = document.activeElement;
+      var isInput = focused && (focused.tagName === "INPUT" || focused.tagName === "TEXTAREA");
+      var el = activeEl || (isInput ? focused : null);
 
-    if (isNuvioBackEvent(e)) {
-      if (activeEl) {
-        // Keyboard is open: unlock so TV closes the keyboard cleanly
-        activeEl = null;
-        origBlur.call(el);
-      } else if (!isSubScreen()) {
-        // No keyboard open & browsing Search / Home / Discover / Library: jump to left sidebar
+      if (isNuvioBackEvent(e)) {
+        if (activeEl) {
+          // Keyboard is open: unlock so TV closes the keyboard cleanly
+          activeEl = null;
+          origBlur.call(el);
+        } else if (!isSubScreen()) {
+          // Browsing Search / Home / Discover / Library (even 20 posters deep): jump straight to left sidebar
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          if (el) origBlur.call(el);
+          focusLeftSidebar();
+        }
+        return;
+      }
+
+      if (evtType !== "keydown" || !el) return;
+      var k = e.keyCode || e.which;
+
+      // OK (13) on keyboard: flush live movie results
+      if (k === 13) {
+        setTimeout(function () { flushInput(el); }, 30);
+        return;
+      }
+
+      // Single Down Arrow (40) once keyboard is closed: jump straight to the first movie poster
+      if (k === 40) {
         e.preventDefault();
         e.stopImmediatePropagation();
-        if (el) origBlur.call(el);
-        focusLeftSidebar();
+        activeEl = null;
+        origBlur.call(el);
+        focusFirstMovie();
+        return;
       }
-      return;
-    }
-
-    if (!el) return;
-    var k = e.keyCode || e.which;
-
-    // OK (13) on keyboard: flush live movie results
-    if (k === 13) {
-      setTimeout(function () { flushInput(el); }, 30);
-      return;
-    }
-
-    // Single Down Arrow (40) once keyboard is closed: jump straight to the first movie poster
-    if (k === 40) {
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      activeEl = null;
-      origBlur.call(el);
-      focusFirstMovie();
-      return;
-    }
-  }, true);
+    }, true);
+  });
 
   // 5. Also catch browser history Back (popstate) when browsing Search or movie rows
   window.addEventListener("popstate", function () {
