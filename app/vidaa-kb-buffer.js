@@ -9,29 +9,23 @@
     return origBlur.apply(this, arguments);
   };
 
-  function focusLeftSidebar() {
-    var candidates = document.querySelectorAll("a, button, [role='button'], [tabindex], [class*='nav-item'], [class*='menu-item'], [class*='sidebar'] div");
-    for (var i = 0; i < candidates.length; i++) {
-      var el = candidates[i];
-      if (el.tagName === "INPUT" || el.tagName === "TEXTAREA") continue;
-      var rect = el.getBoundingClientRect();
-      if (rect.width >= 30 && rect.width <= 260 && rect.height >= 30 && rect.height <= 120 && rect.left >= 0 && rect.left < 150 && rect.top >= 60) {
-        if (el.tabIndex < 0) el.tabIndex = 0;
-        el.focus();
-        if (document.activeElement === el) return true;
-      }
-    }
-    return false;
+  function releaseInput(el) {
+    if (!el) return;
+    activeEl = null;
+    try { el.setSelectionRange(0, 0); } catch (err) {}
+    origBlur.call(el);
   }
 
   function flushInput(el) {
     if (!el) return;
     var finalVal = el.value;
     activeEl = null;
-    origSet.call(el, finalVal);
+    if (origSet) origSet.call(el, finalVal);
+    else el.value = finalVal;
     el.dispatchEvent(new Event("input", { bubbles: true }));
     el.dispatchEvent(new Event("change", { bubbles: true }));
     el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", keyCode: 13, which: 13, bubbles: true }));
+    try { el.setSelectionRange(0, 0); } catch (err) {}
   }
 
   // 2. Lock onto the search input when focused
@@ -42,7 +36,7 @@
     }
   }, true);
 
-  // 3. Block early blur/focusout events while typing (VIDAA fires these after 1 letter!)
+  // 3. Block early blur/focusout events while typing
   ["blur", "focusout"].forEach(function (evt) {
     document.addEventListener(evt, function (e) {
       if (activeEl && e.target === activeEl) {
@@ -56,7 +50,7 @@
     }, true);
   });
 
-  // 4. Block React from seeing each letter mid-word (prevents React from remounting the input)
+  // 4. Block React from seeing each letter mid-word
   ["input", "change", "keyup", "keypress"].forEach(function (evt) {
     document.addEventListener(evt, function (e) {
       if (activeEl && e.target === activeEl && e.isTrusted) {
@@ -65,41 +59,44 @@
     }, true);
   });
 
-  // 5. Handle Enter (submit), and jump to left sidebar anytime on Back or Left Arrow (at start of text)
-  function handleExitNav(e) {
+  // 5. Handle Enter, Down Arrow (jump straight to movies), and Back (jump straight to left menu)
+  document.addEventListener("keydown", function (e) {
     var k = e.keyCode || e.which;
     var focused = document.activeElement;
     var isInput = focused && (focused.tagName === "INPUT" || focused.tagName === "TEXTAREA");
-    var isBackKey = (k === 27 || k === 461 || k === 10009);
-    var isLeftAtStart = (k === 37 && isInput && (!focused.value || focused.selectionStart === 0));
+    if (!isInput && !activeEl) return;
 
-    if (isInput && (isBackKey || isLeftAtStart)) {
+    var el = activeEl || focused;
+
+    // DOWN ARROW (40): Snap cursor to front, unlock input, and let Stremio move focus straight to the movies
+    if (k === 40) {
+      releaseInput(el);
+      return; // Do NOT stop propagation so Stremio's spatial nav immediately moves Down to the movie row!
+    }
+
+    // BACK BUTTON (27, 461, 10009): Snap cursor to front, unlock input, and trigger Stremio's Left nav into the sidebar
+    if (k === 27 || k === 461 || k === 10009) {
       e.preventDefault();
       e.stopImmediatePropagation();
-      var elExit = activeEl || focused;
-      activeEl = null;
-      origBlur.call(elExit);
-      if (!focusLeftSidebar() && isBackKey) {
-        window.location.hash = "#/";
-      }
-      return true;
+      releaseInput(el);
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", code: "ArrowLeft", keyCode: 37, which: 37, bubbles: true }));
+      return;
     }
-    return false;
-  }
 
-  document.addEventListener("keydown", function (e) {
-    if (handleExitNav(e)) return;
-    if (!activeEl) return;
+    // LEFT ARROW (37) when already at the very front: unlock input so Stremio moves into the left sidebar
+    if (k === 37 && (!el.value || el.selectionStart === 0)) {
+      releaseInput(el);
+      return;
+    }
 
-    var k = e.keyCode || e.which;
-    if (k === 13) { // Done / Enter
-      flushInput(activeEl);
-    } else if (e.target === activeEl && e.isTrusted) {
+    // DONE / ENTER (13): Flush the typed word and snap cursor to front so Down/Left work immediately
+    if (k === 13) {
+      flushInput(el);
+      return;
+    }
+
+    if (activeEl && e.target === activeEl && e.isTrusted) {
       e.stopImmediatePropagation();
     }
-  }, true);
-
-  document.addEventListener("keyup", function (e) {
-    handleExitNav(e);
   }, true);
 })();
