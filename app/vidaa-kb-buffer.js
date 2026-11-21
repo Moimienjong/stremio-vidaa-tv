@@ -1,33 +1,52 @@
 (function () {
-  var lockedInput = null;
-  var origBlur = HTMLInputElement.prototype.blur;
+  var typingInput = null;
+  var origPush = history.pushState;
+  var origReplace = history.replaceState;
 
-  // Stop Stremio from blurring the input while you are typing on the TV keyboard
-  HTMLInputElement.prototype.blur = function () {
-    if (this === lockedInput) return;
-    return origBlur.apply(this, arguments);
+  // 1. Stop Stremio from changing the URL (#/search?search=...) while TV keyboard is open
+  history.pushState = function () {
+    if (typingInput) return;
+    return origPush.apply(this, arguments);
+  };
+  history.replaceState = function () {
+    if (typingInput) return;
+    return origReplace.apply(this, arguments);
   };
 
   document.addEventListener("focusin", function (e) {
-    var el = e.target;
-    if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) {
-      lockedInput = el;
-      el.setAttribute("inputmode", "text");
+    if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) {
+      typingInput = e.target;
     }
   }, true);
 
-  // Stop Stremio's navigation scripts from stealing focus on every letter
-  document.addEventListener("keydown", function (e) {
-    var el = document.activeElement;
-    if (!el || (el.tagName !== "INPUT" && el.tagName !== "TEXTAREA")) return;
-
-    var k = e.keyCode || e.which;
-    // Unlock when you press Enter/Done (13) or Back/Escape (27, 461, 10009)
-    if (k === 13 || k === 27 || k === 461 || k === 10009) {
-      lockedInput = null;
-      return;
+  document.addEventListener("focusout", function (e) {
+    if (e.target === typingInput) {
+      var el = typingInput;
+      typingInput = null;
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
     }
+  }, true);
 
-    e.stopImmediatePropagation();
+  // 2. Block live search re-renders on every letter; flush once when Done/Enter is pressed
+  document.addEventListener("input", function (e) {
+    if (typingInput && e.target === typingInput && e.isTrusted) {
+      e.stopImmediatePropagation();
+    }
+  }, true);
+
+  document.addEventListener("keydown", function (e) {
+    if (!typingInput) return;
+    var k = e.keyCode || e.which;
+    if (k === 13) { // Enter / Done on TV keyboard
+      var el = typingInput;
+      typingInput = null;
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+    } else if (k === 27 || k === 461 || k === 10009) {
+      typingInput = null;
+    } else {
+      e.stopImmediatePropagation();
+    }
   }, true);
 })();
