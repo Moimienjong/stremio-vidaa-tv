@@ -1,6 +1,13 @@
 (function () {
   var activeEl = null;
   var origSet = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+  var origBlur = HTMLInputElement.prototype.blur;
+
+  // 1. Block Stremio from calling .blur() on the input while you are typing
+  HTMLInputElement.prototype.blur = function () {
+    if (this === activeEl) return;
+    return origBlur.apply(this, arguments);
+  };
 
   function flushInput(el) {
     if (!el) return;
@@ -12,7 +19,7 @@
     el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", keyCode: 13, which: 13, bubbles: true }));
   }
 
-  // Track when the TV keyboard opens on the search input
+  // 2. Lock onto the search input when focused
   document.addEventListener("focusin", function (e) {
     var el = e.target;
     if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) {
@@ -20,7 +27,21 @@
     }
   }, true);
 
-  // Stop Stremio/React from seeing each letter (which causes React to remount the input and close VIDAA's keyboard)
+  // 3. Block early blur/focusout events while typing (VIDAA fires these after 1 letter!)
+  ["blur", "focusout"].forEach(function (evt) {
+    document.addEventListener(evt, function (e) {
+      if (activeEl && e.target === activeEl) {
+        e.stopImmediatePropagation();
+        setTimeout(function () {
+          if (activeEl && document.activeElement !== activeEl) {
+            activeEl.focus();
+          }
+        }, 0);
+      }
+    }, true);
+  });
+
+  // 4. Block React from seeing each letter mid-word (prevents React from remounting the input)
   ["input", "change", "keyup", "keypress"].forEach(function (evt) {
     document.addEventListener(evt, function (e) {
       if (activeEl && e.target === activeEl && e.isTrusted) {
@@ -29,23 +50,18 @@
     }, true);
   });
 
-  // Intercept keydown: let normal typing stay inside the browser's native input box, flush only on Enter/Done
+  // 5. Flush the full word only when you press Done / Enter (13) on the TV keyboard
   document.addEventListener("keydown", function (e) {
-    if (!activeEl || e.target !== activeEl) return;
+    if (!activeEl) return;
     var k = e.keyCode || e.which;
-    if (k === 13) { // Done / Enter on TV keyboard
+    if (k === 13) { // Done / Enter
       flushInput(activeEl);
     } else if (k === 27 || k === 461 || k === 10009) { // Back / Return
+      var el = activeEl;
       activeEl = null;
-    } else if (e.isTrusted) {
+      origBlur.call(el);
+    } else if (e.target === activeEl && e.isTrusted) {
       e.stopImmediatePropagation();
-    }
-  }, true);
-
-  // Also flush if the user closes the TV keyboard via its "Close/Done" button (which triggers blur/focusout)
-  document.addEventListener("focusout", function (e) {
-    if (activeEl && e.target === activeEl) {
-      flushInput(activeEl);
     }
   }, true);
 })();
