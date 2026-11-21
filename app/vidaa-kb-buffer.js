@@ -1,108 +1,33 @@
-"""Preset catalog: apps ready to install with one click."""
-from __future__ import annotations
+(function () {
+  var lockedInput = null;
+  var origBlur = HTMLInputElement.prototype.blur;
 
-import re
-import ipaddress
-from urllib.parse import quote, urlsplit, urlunsplit
+  // Stop Stremio from blurring the input while you are typing on the TV keyboard
+  HTMLInputElement.prototype.blur = function () {
+    if (this === lockedInput) return;
+    return origBlur.apply(this, arguments);
+  };
 
-MY_STREMIO = "https://" + "moimienjong" + ".github.io/stremio-vidaa-tv/app/?v=77"
-ORIG_ICON = "https://" + "noobygains" + ".github.io/stremio-vidaa-tv/icon.png"
+  document.addEventListener("focusin", function (e) {
+    var el = e.target;
+    if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) {
+      lockedInput = el;
+      el.setAttribute("inputmode", "text");
+    }
+  }, true);
 
-PRESETS: dict[str, dict] = {
-    "nuvio": {
-        "name": "Nuvio",
-        "app_id": "nuviodebug",
-        "url": "https://" + "nuviotvsmart" + ".vercel.app/vidaa.html",
-        "image": "https://" + "nuviotvsmart" + ".vercel.app/assets/images/tizenIcon.png",
-        "icon": "assets/nuvio-wordmark.png",
-        "description": "Browse and stream your library",
-    },
-    "stremio": {
-        "name": "Stremio",
-        "app_id": "stremiodebug",
-        "url": MY_STREMIO,
-        "server_builder": "stremio",
-        "server_optional": True,
-        "server_placeholder": "Streaming server URL (optional)",
-        "image": ORIG_ICON,
-        "description": "Full Stremio TV for VIDAA with D-pad navigation",
-    },
-    "jellyfin": {
-        "name": "Jellyfin",
-        "app_id": "jellyfin",
-        "url": "",
-        "needs_server": True,
-        "server_placeholder": "Your server's IP or URL",
-        "image": "https://" + "raw.githubusercontent" + ".com/Empi9245/Sidee/main/assets/jellyfin-tile-bold.png",
-        "icon": "assets/jellyfin.png",
-        "description": "Your media from your Jellyfin server",
-    },
-}
+  // Stop Stremio's navigation scripts from stealing focus on every letter
+  document.addEventListener("keydown", function (e) {
+    var el = document.activeElement;
+    if (!el || (el.tagName !== "INPUT" && el.tagName !== "TEXTAREA")) return;
 
+    var k = e.keyCode || e.which;
+    // Unlock when you press Enter/Done (13) or Back/Escape (27, 461, 10009)
+    if (k === 13 || k === 27 || k === 461 || k === 10009) {
+      lockedInput = null;
+      return;
+    }
 
-def get(key: str) -> dict | None:
-    return PRESETS.get(key.lower())
-
-
-def is_private_host(server: str) -> bool:
-    """True for local/private network (LAN) hosts: HTTP is allowed only there."""
-    host = (urlsplit(server if "://" in server else "//" + server).hostname or "").rstrip(".")
-    if host.endswith(".local"):
-        return True
-    try:
-        address = ipaddress.ip_address(host)
-    except ValueError:
-        return False
-    return any(address in ipaddress.ip_network(network) for network in
-               ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7"))
-
-
-def build_server_url(server: str) -> str:
-    """Server address -> web client URL, including scheme and path."""
-    server = server.strip().rstrip("/")
-    has_scheme = "://" in server
-    parsed = urlsplit(server if has_scheme else "//" + server)
-    host = (parsed.hostname or "").rstrip(".")
-    if not host:
-        raise ValueError("Enter your Jellyfin server's LAN IP or full URL.")
-    try:
-        address = ipaddress.ip_address(host)
-    except ValueError:
-        address = None
-    if (host == "localhost" or host.endswith(".localhost") or
-            (address and (address.is_loopback or address.is_unspecified))):
-        raise ValueError("Use your Jellyfin server's LAN IP or URL; localhost "
-                         "and loopback addresses refer to the TV itself.")
-    port = parsed.port
-    scheme = parsed.scheme if has_scheme else ("http" if is_private_host(server) else "https")
-    authority = parsed.netloc
-    if not has_scheme and port is None:
-        authority += ":8096"
-    path = parsed.path.rstrip("/")
-    if not re.search(r"/web(/index\.html)?$", path):
-        path += "/web/index.html"
-    return urlunsplit((scheme, authority, path, parsed.query, parsed.fragment))
-
-
-def build_stremio_url(server: str = "") -> str:
-    """Build the VIDAA-optimised full Stremio TV URL."""
-    base = MY_STREMIO
-    server = server.strip().rstrip("/")
-    if not server:
-        return base
-    parsed = urlsplit(server)
-    if parsed.scheme not in ("http", "https") or not parsed.hostname:
-        raise ValueError(
-            "Paste the full Stremio streaming server URL, including http:// or https://.")
-    host = parsed.hostname.rstrip(".").lower()
-    try:
-        address = ipaddress.ip_address(host)
-    except ValueError:
-        address = None
-    if (host == "localhost" or host.endswith(".localhost") or
-            (address and (address.is_loopback or address.is_unspecified))):
-        raise ValueError(
-            "Use the Stremio server address reachable by your TV; localhost points to the TV itself.")
-    normalized = urlunsplit(
-        (parsed.scheme, parsed.netloc, parsed.path or "", parsed.query, parsed.fragment))
-    return base + "&server=" + quote(normalized, safe="")
+    e.stopImmediatePropagation();
+  }, true);
+})();
